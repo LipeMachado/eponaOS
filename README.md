@@ -1,6 +1,6 @@
 # EponaOS
 
-Este repositório contém o código do sistema operacional EponaOS.
+Sistema Operacional EponaOS.
 
 ## Pré-requisitos
 
