@@ -55,4 +55,22 @@ void pci_write_config(uint8_t bus, uint8_t dev, uint8_t func, uint8_t offset, ui
 void pci_enumerate(void);
 void pci_print_device(const pci_device_t *dev);
 
+#define PCI_CLASS_DISPLAY 0x03
+
+#define PCI_VENDOR_INTEL  0x8086
+#define PCI_VENDOR_NVIDIA 0x10DE
+#define PCI_VENDOR_AMD    0x1002
+
+typedef struct {
+    uint16_t vendor;
+    uint16_t device_id;
+    uint32_t bar0;
+    uint8_t  irq;
+    uint8_t  is_intel;
+    uint8_t  is_nvidia;
+    uint8_t  is_amd;
+} gpu_info_t;
+
+const gpu_info_t *pci_find_gpu(void);
+
 #endif

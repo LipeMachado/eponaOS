@@ -129,3 +129,45 @@ void kfree(void *ptr) {
     else
         heap_coalesce(h);
 }
+
+void *kcalloc(size_t count, size_t size) {
+    size_t total = count * size;
+    void *ptr = kmalloc(total);
+    if (ptr) {
+        uint8_t *p = (uint8_t *) ptr;
+        for (size_t i = 0; i < total; i++)
+            p[i] = 0;
+    }
+    return ptr;
+}
+
+void *krealloc(void *ptr, size_t new_size) {
+    if (!ptr)
+        return kmalloc(new_size);
+    if (new_size == 0) {
+        kfree(ptr);
+        return NULL;
+    }
+
+    heap_header_t *old_h = (heap_header_t *) ((uintptr_t) ptr - HEADER_SIZE);
+    size_t old_data = old_h->size - HEADER_SIZE;
+    if (old_data > new_size)
+        old_data = new_size;
+
+    void *new_ptr = kmalloc(new_size);
+    if (new_ptr) {
+        uint8_t *src = (uint8_t *) ptr;
+        uint8_t *dst = (uint8_t *) new_ptr;
+        for (size_t i = 0; i < old_data; i++)
+            dst[i] = src[i];
+        kfree(ptr);
+    }
+    return new_ptr;
+}
+
+size_t ksize(void *ptr) {
+    if (!ptr)
+        return 0;
+    heap_header_t *h = (heap_header_t *) ((uintptr_t) ptr - HEADER_SIZE);
+    return h->size - HEADER_SIZE;
+}

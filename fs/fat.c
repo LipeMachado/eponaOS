@@ -329,6 +329,19 @@ static int fat_readdir(vfs_node_t *node, int (*cb)(const char *, uint32_t, uint8
 
             uint8_t flags = (de->attrs & FAT_ATTR_DIR) ? VFS_DIR : VFS_FILE;
 
+            /* Check if child already exists (prevent leak on repeated readdir) */
+            vfs_node_t *existing = node->children;
+            int found = 0;
+            while (existing) {
+                if (strcmp(existing->name, name) == 0) { found = 1; break; }
+                existing = existing->next;
+            }
+            if (found) {
+                if (cb) cb(name, de->size, flags, arg);
+                entry_count++;
+                continue;
+            }
+
             vfs_node_t *child = fat_create_node(name, de->size, flags, de_cluster, lba + sector, off, node->fs, node);
             if (!child) continue;
 

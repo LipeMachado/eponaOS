@@ -1,6 +1,7 @@
 #include "paging.h"
 #include "pmm.h"
 #include "serial.h"
+#include "heap.h"
 #include <stddef.h>
 
 static page_table_t *g_pml4 = NULL;
@@ -99,6 +100,10 @@ int paging_unmap_page(uint64_t virt) {
     page_table_t *pt = (page_table_t *) (*pd_e & PAGE_ADDR_MASK);
     page_entry_t *pt_e = &pt->entries[idx_pt];
     if (!(*pt_e & PAGE_PRESENT)) return -1;
+
+    /* Free the physical frame before clearing the PTE */
+    uint64_t phys = *pt_e & PAGE_ADDR_MASK;
+    if (phys) pmm_free((void *)phys);
 
     pt->entries[idx_pt] = 0;
 

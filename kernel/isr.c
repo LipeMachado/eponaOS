@@ -60,7 +60,11 @@ void isr_handler(struct regs *r) {
         gpu_print(g_exc_names[r->vector]);
     if (r->vector == 14) {
         gpu_print(" addr=");
-        /* can't use print_u64 from here, use serial */
+        /* print CR2 directly to GPU */
+        uint64_t cr2_val = read_cr2();
+        char hex[17]; int h = 16; hex[h] = 0;
+        for (int i = 0; i < 16; i++) { hex[--h] = "0123456789ABCDEF"[(cr2_val >> (i*4)) & 0xF]; }
+        gpu_print(&hex[h]);
     }
     gpu_print("\n");
     gpu_set_color(0x0F, 0x00);

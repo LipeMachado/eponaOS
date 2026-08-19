@@ -20,6 +20,8 @@
 #include "shell.h"
 #include "syscall.h"
 #include "elf.h"
+#include "acpi.h"
+#include "rtc.h"
 
 
 static void print_u64(uint64_t v) {
@@ -104,6 +106,11 @@ void kernel_main(void) {
     gpu_init_framebuffer();
     pci_enumerate();
     mouse_init();
+    serial_print("[main] calling rtc_init...\n");
+    rtc_init();
+    serial_print("[main] calling acpi_init...\n");
+    acpi_init();
+    serial_print("[main] acpi_init done\n");
 
     {
         uint16_t ident[256];
@@ -180,28 +187,65 @@ void kernel_main(void) {
         net_poll();
 
     scheduler_init();
-    sys_fd_init();
 
     gpu_set_color(0x0B, 0x00);
     gpu_print("=== EponaOS ===\n");
     gpu_set_color(0x0F, 0x00);
-    gpu_print("Kernel em C, long mode 64-bit.\n");
-    gpu_print("GDT + TSS + IDT carregadas.\n");
-    gpu_print("Scheduler round-robin preemptivo.\n");
-    serial_print("[pmm] init ok.\n");
-
-    gpu_print("RAM total: ");
+    gpu_print("Kernel x86_64 long mode\n");
+    gpu_print("RAM: ");
     print_u64(pmm_total_bytes() / (1024 * 1024));
     gpu_print(" MiB\n");
 
+    /* GPU detection */
+    const gpu_info_t *gpu = pci_find_gpu();
+    if (gpu) {
+        gpu_set_color(0x0A, 0x00);
+        gpu_print("GPU: ");
+        if (gpu->is_intel) gpu_print("Intel");
+        else if (gpu->is_nvidia) gpu_print("NVIDIA");
+        else if (gpu->is_amd) gpu_print("AMD");
+        else gpu_print("Unknown");
+        gpu_print(" (BAR0=");
+        char hex[12];
+        int h = 10; hex[h] = 0;
+        uint32_t v = gpu->bar0;
+        if (v == 0) hex[--h] = '0';
+        while (v) { hex[--h] = "0123456789ABCDEF"[v & 0xF]; v >>= 4; }
+        gpu_print(&hex[h]);
+        gpu_print(")\n");
+    } else {
+        gpu_set_color(0x0E, 0x00);
+        gpu_print("GPU: VBE framebuffer\n");
+    }
+
+    /* ACPI status */
+    gpu_set_color(0x0A, 0x00);
+    gpu_print("ACPI: ");
+    gpu_print(acpi_get_pm1a() ? "OK" : "not found");
+    gpu_print("\n");
+
+    /* RTC date/time */
+    rtc_time_t t;
+    rtc_read_time(&t);
+    gpu_set_color(0x0F, 0x00);
+    gpu_print("Date: ");
+    print_u64(t.day); gpu_print("/"); print_u64(t.month); gpu_print("/"); print_u64(t.year);
+    gpu_print("  Time: ");
+    print_u64(t.hours); gpu_print(":");
+    if (t.minutes < 10) gpu_print("0");
+    print_u64(t.minutes); gpu_print(":");
+    if (t.seconds < 10) gpu_print("0");
+    print_u64(t.seconds);
+    gpu_print("\n");
+
     if (net_is_configured()) {
         gpu_set_color(0x0A, 0x00);
-        gpu_print("Rede: DHCP OK  IP ");
+        gpu_print("NET: ");
         print_ip(net_local_ip());
         gpu_print("\n");
     } else {
         gpu_set_color(0x0C, 0x00);
-        gpu_print("Rede: DHCP falhou\n");
+        gpu_print("NET: offline\n");
     }
 
     if (net_dns_answer_ip()) {

@@ -7,5 +7,8 @@
 void heap_init(void);
 void *kmalloc(size_t size);
 void kfree(void *ptr);
+void *kcalloc(size_t count, size_t size);
+void *krealloc(void *ptr, size_t new_size);
+size_t ksize(void *ptr);
 
 #endif

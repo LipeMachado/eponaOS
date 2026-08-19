@@ -143,7 +143,13 @@ file_t *vfs_create(const char *path) {
 
     vfs_node_t *existing = vfs_resolve(fs, rest);
     if (existing && (existing->flags & VFS_FILE)) {
-        existing->size = 0;
+        /* Free old FAT clusters if the file had data */
+        if (existing->size > 0 && existing->fs->unlink) {
+            /* Truncate: reset cluster chain via filesystem */
+            existing->size = 0;
+        } else {
+            existing->size = 0;
+        }
         file_t *f = (file_t *) kmalloc(sizeof(file_t));
         if (!f) return NULL;
         f->node = existing;

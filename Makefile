@@ -19,7 +19,9 @@ KOBJS := $(BUILD)/entry.o $(BUILD)/main.o $(BUILD)/gpu.o $(BUILD)/serial.o \
 		   $(BUILD)/scheduler.o $(BUILD)/switch.o $(BUILD)/pci.o $(BUILD)/ata.o \
 		   $(BUILD)/vfs.o $(BUILD)/fat.o $(BUILD)/rtl8139.o $(BUILD)/net.o \
 		   $(BUILD)/shell.o $(BUILD)/syscall.o $(BUILD)/syscall_asm.o \
-		   $(BUILD)/elf.o $(BUILD)/gui.o $(BUILD)/cursor.o $(BUILD)/term.o
+		   $(BUILD)/elf.o $(BUILD)/gui.o $(BUILD)/cursor.o $(BUILD)/term.o \
+		   $(BUILD)/acpi.o \
+		   $(BUILD)/rtc.o
 
 STAGE1     := $(BUILD)/stage1.bin
 STAGE2     := $(BUILD)/stage2.bin
@@ -30,7 +32,7 @@ DATA_IMG   := $(BUILD)/data.img
 QEMUFLAGS  := -drive format=raw,file=$(IMG) -drive format=raw,file=$(DATA_IMG) \
               -vga std \
               -netdev user,id=net0 -device rtl8139,netdev=net0 \
-              -serial stdio -no-reboot
+              -serial stdio -no-reboot -m 512
 
 .PHONY: all run debug clean format
 all: $(IMG) $(DATA_IMG) $(BUILD_USER)
@@ -77,6 +79,8 @@ $(BUILD)/gui.o: kernel/gui.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 $(BUILD)/cursor.o: drivers/cursor.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
+$(BUILD)/acpi.o: drivers/acpi.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
 $(BUILD)/term.o: kernel/term.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 $(BUILD)/vfs.o: fs/vfs.c | $(BUILD)
@@ -99,12 +103,15 @@ $(BUILD)/syscall_asm.o: kernel/syscall_asm.asm | $(BUILD)
 	$(ASM) -f elf64 $< -o $@
 $(BUILD)/elf.o: kernel/elf.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
+$(BUILD)/rtc.o: drivers/rtc.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
 
 # user-space programs
 USER_CFLAGS := -std=c17 -ffreestanding -nostdlib -fno-stack-protector -fno-pie -fno-pic \
                -mno-red-zone -mno-sse -mno-mmx -mno-80387 -mcmodel=large -Wall -Wextra \
                -I user -I include
-BUILD_USER := $(BUILD)/test.elf $(BUILD)/shell.elf $(BUILD)/edit.elf $(BUILD)/spin.elf
+BUILD_USER := $(BUILD)/test.elf $(BUILD)/shell.elf $(BUILD)/edit.elf $(BUILD)/spin.elf \
+              $(BUILD)/calculator.elf $(BUILD)/sysmon.elf
 
 $(BUILD)/test.o: user/test.S user/link.ld | $(BUILD)
 	nasm -f elf64 user/test.S -o $@
@@ -133,6 +140,22 @@ $(BUILD)/spin_c.o: user/spin.c | $(BUILD)
 $(BUILD)/spin.elf: $(BUILD)/crt0.o $(BUILD)/spin_c.o user/link.ld | $(BUILD)
 	x86_64-elf-ld -T user/link.ld -o $@ $(BUILD)/crt0.o $(BUILD)/spin_c.o
 	@echo "==> user spin.elf created"
+
+$(BUILD)/calculator_c.o: user/calculator.c | $(BUILD)
+	$(CC) $(USER_CFLAGS) -c $< -o $@
+$(BUILD)/calculator_stdlib.o: user/stdlib.c | $(BUILD)
+	$(CC) $(USER_CFLAGS) -c $< -o $@
+$(BUILD)/calculator.elf: $(BUILD)/crt0.o $(BUILD)/calculator_c.o $(BUILD)/calculator_stdlib.o user/link.ld | $(BUILD)
+	x86_64-elf-ld -T user/link.ld -o $@ $(BUILD)/crt0.o $(BUILD)/calculator_c.o $(BUILD)/calculator_stdlib.o
+	@echo "==> user calculator.elf created"
+
+$(BUILD)/sysmon_c.o: user/sysmon.c | $(BUILD)
+	$(CC) $(USER_CFLAGS) -c $< -o $@
+$(BUILD)/sysmon_stdlib.o: user/stdlib.c | $(BUILD)
+	$(CC) $(USER_CFLAGS) -c $< -o $@ -DSYSMON_BUILD
+$(BUILD)/sysmon.elf: $(BUILD)/crt0.o $(BUILD)/sysmon_c.o $(BUILD)/sysmon_stdlib.o user/link.ld | $(BUILD)
+	x86_64-elf-ld -T user/link.ld -o $@ $(BUILD)/crt0.o $(BUILD)/sysmon_c.o $(BUILD)/sysmon_stdlib.o
+	@echo "==> user sysmon.elf created"
 
 $(KERNEL_ELF): $(KOBJS) linker.ld
 	$(CC) -nostdlib -no-pie -T linker.ld -o $@ $(KOBJS) -lgcc
@@ -166,6 +189,8 @@ $(DATA_IMG): $(BUILD_USER) | $(BUILD)
 	mcopy -i $@ $(BUILD)/shell.elf ::SHELL.ELF
 	mcopy -i $@ $(BUILD)/edit.elf ::EDIT.ELF
 	mcopy -i $@ $(BUILD)/spin.elf ::SPIN.ELF
+	mcopy -i $@ $(BUILD)/calculator.elf ::CALC.ELF
+	mcopy -i $@ $(BUILD)/sysmon.elf ::SYSMON.ELF
 	mcopy -i $@ packages/repo.epk ::REPO.EPK
 	mcopy -i $@ packages/shell.epk ::SHELL.EPK
 	mcopy -i $@ packages/test.epk ::TEST.EPK

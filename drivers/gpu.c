@@ -11,8 +11,11 @@
 #define VGA_ROWS 25
 #define VBE_MODE_INFO ((volatile vbe_mode_info_t *)0xF000)
 #define VGA_FONT_8X16 ((const uint8_t *)0xE000)
-#define FONT_W 8
-#define FONT_H 16
+#define FONT_BASE_W 8
+#define FONT_BASE_H 16
+#define FONT_SCALE  1
+#define FONT_W (FONT_BASE_W * FONT_SCALE)
+#define FONT_H (FONT_BASE_H * FONT_SCALE)
 
 typedef struct {
     uint16_t attributes;
@@ -165,27 +168,34 @@ static void fb_fill_rect(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint32_
 static void fb_draw_char(size_t row, size_t col, char ch, uint8_t fg, uint8_t bg) {
     uint16_t x = (uint16_t)(g_vp_x + col * FONT_W);
     uint16_t y = (uint16_t)(g_vp_y + row * FONT_H);
-    const uint8_t *glyph = VGA_FONT_8X16 + ((uint8_t)ch * FONT_H);
+    const uint8_t *glyph = VGA_FONT_8X16 + ((uint8_t)ch * FONT_BASE_H);
     uint32_t fg_rgb = rgb_for_color(fg);
     uint32_t bg_rgb = rgb_for_color(bg);
 
-    for (uint16_t gy = 0; gy < FONT_H; gy++) {
+    for (uint16_t gy = 0; gy < FONT_BASE_H; gy++) {
         uint8_t bits = glyph[gy];
-        for (uint16_t gx = 0; gx < FONT_W; gx++) {
+        for (uint16_t gx = 0; gx < FONT_BASE_W; gx++) {
             uint32_t rgb = (bits & (0x80 >> gx)) ? fg_rgb : bg_rgb;
-            fb_put_pixel((uint16_t)(x + gx), (uint16_t)(y + gy), rgb);
+            /* Scale 2x: draw each pixel as 2x2 block */
+            for (int sy = 0; sy < FONT_SCALE; sy++)
+                for (int sx = 0; sx < FONT_SCALE; sx++)
+                    fb_put_pixel((uint16_t)(x + gx * FONT_SCALE + sx),
+                                 (uint16_t)(y + gy * FONT_SCALE + sy), rgb);
         }
     }
 }
 
 static void fb_draw_char_px(uint16_t x, uint16_t y, char ch, uint32_t fg, uint32_t bg) {
-    const uint8_t *glyph = VGA_FONT_8X16 + ((uint8_t)ch * FONT_H);
+    const uint8_t *glyph = VGA_FONT_8X16 + ((uint8_t)ch * FONT_BASE_H);
 
-    for (uint16_t gy = 0; gy < FONT_H; gy++) {
+    for (uint16_t gy = 0; gy < FONT_BASE_H; gy++) {
         uint8_t bits = glyph[gy];
-        for (uint16_t gx = 0; gx < FONT_W; gx++) {
+        for (uint16_t gx = 0; gx < FONT_BASE_W; gx++) {
             uint32_t rgb = (bits & (0x80 >> gx)) ? fg : bg;
-            fb_put_pixel((uint16_t)(x + gx), (uint16_t)(y + gy), rgb);
+            for (int sy = 0; sy < FONT_SCALE; sy++)
+                for (int sx = 0; sx < FONT_SCALE; sx++)
+                    fb_put_pixel((uint16_t)(x + gx * FONT_SCALE + sx),
+                                 (uint16_t)(y + gy * FONT_SCALE + sy), rgb);
         }
     }
 }

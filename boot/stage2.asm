@@ -16,7 +16,7 @@ E820_COUNT equ 0x4000        ; onde gravamos o nº de entradas (u32)
 E820_MAP   equ 0x4004        ; onde comecam as entradas (24 bytes cada)
 VGA_FONT_8X16 equ 0xE000
 VBE_MODE_INFO equ 0xF000
-VBE_MODE equ 0x118           ; 1024x768, geralmente 24/32bpp no QEMU/Bochs VBE
+VBE_MODE equ 0x118           ; 1024x768, 32bpp
 
 stage2_start:
     cld

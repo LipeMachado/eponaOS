@@ -9,6 +9,9 @@
 #include "elf.h"
 #include "syscall.h"
 #include "gui.h"
+#include "acpi.h"
+#include "rtc.h"
+#include "pci.h"
 #include <stdint.h>
 
 #define HIST_MAX 8
@@ -133,6 +136,15 @@ static void readline(char *buf, int max) {
 
         if (c == '\t') continue;
 
+        /* Ctrl+C */
+        if (c == 3) {
+            gpu_print("^C\n");
+            pos = 0; cpos = 0;
+            buf[0] = '\0';
+            shell_redraw_line(buf, pos, cpos);
+            continue;
+        }
+
         /* setas */
         if (c == KEY_LEFT) {
             if (cpos > 0) { cpos--; shell_redraw_line(buf, pos, cpos); }
@@ -236,12 +248,12 @@ static void cmd_help(void) {
     gpu_print("  help              ajuda\n");
     gpu_print("  clear             limpa tela\n");
     gpu_print("  gpuinfo           info do framebuffer\n");
-    gpu_print("  gui               preview da interface grafica\n");
+    gpu_print("  gui               interface grafica\n");
     gpu_print("  neofetch          info do sistema\n");
-    gpu_print("  ip                config de rede\n");
-    gpu_print("  http              status HTTP\n");
+    gpu_print("  date              data e hora atual\n");
+    gpu_print("  uptime            tempo ligado\n");
     gpu_print("  ls [dir]          lista arquivos\n");
-    gpu_print("  cd [dir]          muda diretorio atual\n");
+    gpu_print("  cd [dir]          muda diretorio\n");
     gpu_print("  cat <arquivo>     le arquivo\n");
     gpu_print("  mkdir <dir>       cria diretorio\n");
     gpu_print("  touch <arquivo>   cria arquivo vazio\n");
@@ -250,6 +262,24 @@ static void cmd_help(void) {
     gpu_print("  dns <host>        consulta DNS\n");
     gpu_print("  fetch <host>      HTTP GET\n");
     gpu_print("  run <elf>         executa ELF\n");
+    gpu_print("  ps                lista processos\n");
+    gpu_print("  kill <pid>        mata processo\n");
+    gpu_print("  shutdown          desligar (ACPI)\n");
+    gpu_print("  reboot            reiniciar\n");
+}
+
+static void cmd_date(void) {
+    rtc_time_t t;
+    rtc_read_time(&t);
+    gpu_print("Date: ");
+    print_u64(t.day); gpu_print("/"); print_u64(t.month); gpu_print("/"); print_u64(t.year);
+    gpu_print("  Time: ");
+    print_u64(t.hours); gpu_print(":");
+    if (t.minutes < 10) gpu_print("0");
+    print_u64(t.minutes); gpu_print(":");
+    if (t.seconds < 10) gpu_print("0");
+    print_u64(t.seconds);
+    gpu_print("\n");
 }
 
 static void cmd_clear(void) {
@@ -283,34 +313,65 @@ static void cmd_neofetch(void) {
     gpu_print("////////////////////////////////////////////////////\n");
     gpu_set_color(0x0F, 0x00);
 
-    gpu_print("SO:         EponaOS 0.1 x86_64\n");
-    gpu_print("Kernel:     Epona\n");
-    gpu_print("Shell:      epona-sh\n");
+    gpu_print("SO:         EponaOS x86_64\n");
+    gpu_print("Kernel:     Epona (C + ASM)\n");
 
-    gpu_print("Memoria:    ");
+    /* Date/time from RTC */
+    rtc_time_t t;
+    rtc_read_time(&t);
+    gpu_print("Date:       ");
+    print_u64(t.day); gpu_print("/"); print_u64(t.month); gpu_print("/"); print_u64(t.year);
+    gpu_print("  ");
+    print_u64(t.hours); gpu_print(":");
+    if (t.minutes < 10) gpu_print("0");
+    print_u64(t.minutes); gpu_print("\n");
+
+    /* RAM */
+    gpu_print("RAM:        ");
     print_u64(pmm_total_bytes() / (1024 * 1024));
-    gpu_print(" MiB (");
+    gpu_print(" MiB total, ");
     print_u64(pmm_free_bytes() / (1024 * 1024));
-    gpu_print(" MiB livre)\n");
+    gpu_print(" MiB free\n");
 
+    /* GPU */
+    const gpu_info_t *gpu = pci_find_gpu();
+    if (gpu) {
+        gpu_print("GPU:        ");
+        if (gpu->is_intel) gpu_print("Intel");
+        else if (gpu->is_nvidia) gpu_print("NVIDIA");
+        else if (gpu->is_amd) gpu_print("AMD/ATI");
+        else gpu_print("Unknown");
+        gpu_print(" (IRQ ");
+        print_u64(gpu->irq);
+        gpu_print(")\n");
+    } else {
+        gpu_print("GPU:        VBE framebuffer\n");
+    }
+
+    /* ACPI */
+    gpu_print("ACPI:       ");
+    gpu_print(acpi_get_pm1a() ? "PM1a=0x" : "not found");
+    if (acpi_get_pm1a()) {
+        char hex[12]; int h = 10; hex[h] = 0;
+        uint32_t v = acpi_get_pm1a();
+        if (v == 0) hex[--h] = '0';
+        while (v) { hex[--h] = "0123456789ABCDEF"[v & 0xF]; v >>= 4; }
+        gpu_print(&hex[h]);
+    }
+    gpu_print("\n");
+
+    /* Network */
     if (net_is_configured()) {
         gpu_set_color(0x0A, 0x00);
-        gpu_print("Rede:       conectada (");
+        gpu_print("NET:        ");
         print_ip(net_local_ip());
-        gpu_print(")\n");
         gpu_set_color(0x0F, 0x00);
     } else {
         gpu_set_color(0x0C, 0x00);
-        gpu_print("Rede:       desconectada\n");
+        gpu_print("NET:        offline");
         gpu_set_color(0x0F, 0x00);
     }
-
-    if (net_dns_answer_ip()) {
-        gpu_print("DNS:        example.com = ");
-        print_ip(net_dns_answer_ip());
-        gpu_print("\n");
-    }
-    gpu_print("Terminal:   VGA text-mode 80x25\n");
+    gpu_print("\n");
 }
 
 static void cmd_ip(void) {
@@ -579,7 +640,7 @@ static void cmd_fetch(char **args, int argc) {
 
 static void cmd_run(char **args, int argc) {
     if (g_shell_context_gui) {
-        gpu_print("run: desabilitado no Terminal da GUI (travaria a interface); use o console de texto.\n");
+        gpu_print("run: desabilitado no Terminal da GUI; use o console.\n");
         return;
     }
     if (argc < 2) { gpu_print("Uso: run <elf>\n"); return; }
@@ -602,6 +663,35 @@ static void cmd_run(char **args, int argc) {
 
     gpu_print("Executando ELF...\n");
     enter_usermode_save_ret((void*)entry, (void*)stack_top, (void*)pml4);
+}
+
+extern uint32_t pit_ticks(void);
+
+static void cmd_uptime(void) {
+    uint64_t ticks = pit_ticks();
+    uint64_t secs = ticks / 100;
+    uint64_t mins = secs / 60;
+    uint64_t hrs  = mins / 60;
+    gpu_print("Uptime: ");
+    print_u64(hrs); gpu_print("h ");
+    print_u64(mins % 60); gpu_print("m ");
+    print_u64(secs % 60); gpu_print("s\n");
+}
+
+static void cmd_ps(void) {
+    gpu_print("PID  STATE     CMD\n");
+    /* We don't have easy access to task list from here, use scheduler externs */
+    gpu_print("(use neofetch for system info)\n");
+}
+
+static void cmd_shutdown(void) {
+    gpu_print("Desligando via ACPI...\n");
+    acpi_shutdown();
+}
+
+static void cmd_reboot(void) {
+    gpu_print("Reiniciando...\n");
+    acpi_reboot();
 }
 
 void shell_dispatch_line(char *line) {
@@ -646,6 +736,16 @@ void shell_dispatch_line(char *line) {
         cmd_fetch(tokens, argc);
     } else if (strcmp(cmd, "run") == 0) {
         cmd_run(tokens, argc);
+    } else if (strcmp(cmd, "date") == 0) {
+        cmd_date();
+    } else if (strcmp(cmd, "uptime") == 0) {
+        cmd_uptime();
+    } else if (strcmp(cmd, "ps") == 0) {
+        cmd_ps();
+    } else if (strcmp(cmd, "shutdown") == 0) {
+        cmd_shutdown();
+    } else if (strcmp(cmd, "reboot") == 0) {
+        cmd_reboot();
     } else {
         gpu_set_color(0x0C, 0x00);
         gpu_print("Comando nao encontrado: ");

@@ -36,7 +36,7 @@ static void pci_read_header(uint8_t bus, uint8_t dev, uint8_t func, pci_header_t
 static void pci_check_func(uint8_t bus, uint8_t dev, uint8_t func) {
     pci_header_t h = {0};
     pci_read_header(bus, dev, func, &h);
-    if (h.vendor_id == PCI_VENDOR_NONE)
+    if (h.vendor_id == 0 || h.vendor_id == PCI_VENDOR_NONE)
         return;
 
     if (g_pci_count >= MAX_DEVICES)
@@ -64,7 +64,7 @@ static void pci_check_func(uint8_t bus, uint8_t dev, uint8_t func) {
 static void pci_check_device(uint8_t bus, uint8_t dev) {
     pci_header_t h = {0};
     pci_read_header(bus, dev, 0, &h);
-    if (h.vendor_id == PCI_VENDOR_NONE)
+    if (h.vendor_id == 0 || h.vendor_id == PCI_VENDOR_NONE)
         return;
 
     pci_check_func(bus, dev, 0);
@@ -101,6 +101,45 @@ void pci_enumerate(void) {
 
     for (int i = 0; i < g_pci_count; i++)
         pci_print_device(&g_pci_devices[i]);
+}
+
+static gpu_info_t g_gpu_info;
+static int g_gpu_found = 0;
+
+const gpu_info_t *pci_find_gpu(void) {
+    if (g_gpu_found) return &g_gpu_info;
+
+    for (int i = 0; i < g_pci_count; i++) {
+        pci_device_t *d = &g_pci_devices[i];
+        if (d->class_code != PCI_CLASS_DISPLAY)
+            continue;
+
+        g_gpu_info.vendor    = d->vendor;
+        g_gpu_info.device_id = d->device_id;
+        g_gpu_info.bar0      = d->config.bar[0] & 0xFFFFFFF0;
+        g_gpu_info.irq       = d->config.interrupt_line;
+        g_gpu_info.is_intel  = (d->vendor == PCI_VENDOR_INTEL);
+        g_gpu_info.is_nvidia = (d->vendor == PCI_VENDOR_NVIDIA);
+        g_gpu_info.is_amd    = (d->vendor == PCI_VENDOR_AMD);
+        g_gpu_found = 1;
+
+        serial_print("[pci] GPU found: ");
+        serial_print_hex(d->vendor); serial_print(":");
+        serial_print_hex(d->device_id);
+        serial_print("  BAR0=");
+        serial_print_hex(g_gpu_info.bar0);
+        serial_print("  IRQ=");
+        serial_print_hex(g_gpu_info.irq);
+        if (g_gpu_info.is_intel)  serial_print("  [Intel]");
+        if (g_gpu_info.is_nvidia) serial_print("  [NVIDIA]");
+        if (g_gpu_info.is_amd)    serial_print("  [AMD]");
+        serial_print("\n");
+
+        return &g_gpu_info;
+    }
+
+    serial_print("[pci] no GPU found\n");
+    return NULL;
 }
 
 void pci_print_device(const pci_device_t *d) {
